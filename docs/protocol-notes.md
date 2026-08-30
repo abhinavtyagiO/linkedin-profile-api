@@ -126,6 +126,17 @@ Observed Flight token forms include:
 - `"$undefined"` as an undefined-value sentinel;
 - long `$0:...:props:...` paths as references into previously decoded model-tree locations.
 
+Observed record framing also includes `T` text records:
+
+```text
+<record-id>:T<hex-byte-length>,<raw UTF-8 bytes><next record>
+```
+
+The raw text can contain newlines, and the next record can begin immediately
+after the declared number of bytes. The decoder must therefore honor the byte
+length before looking for the next record; a whole-payload `splitlines()` loses
+record boundaries for profiles with longer text sections.
+
 A safe decoder must distinguish these tokens from ordinary strings and resolve references only after all records have been indexed. It should also enforce depth, record-count, and payload-size limits before traversing an untrusted upstream response.
 
 Therefore, the current parser design is:

@@ -76,6 +76,26 @@ class FlightStreamTests(unittest.TestCase):
         self.assertEqual(resolved["map"], [["a", 1]])
         self.assertEqual(resolved["set"], ["b"])
 
+    def test_parses_length_framed_text_followed_without_newline(self):
+        stream = FlightStream.parse(b'0:T5,hello1:{"ok":true}\n')
+
+        self.assertEqual(stream.record("0").tag, "T")
+        self.assertEqual(stream.record("0").value, "hello")
+        self.assertEqual(stream.record("1").value, {"ok": True})
+
+    def test_text_length_counts_utf8_bytes_and_allows_newlines(self):
+        text = "h\N{LATIN SMALL LETTER E WITH ACUTE}\nzero"
+        encoded = text.encode("utf-8")
+        payload = b"0:T" + format(len(encoded), "x").encode("ascii") + b"," + encoded
+
+        stream = FlightStream.parse(payload)
+
+        self.assertEqual(stream.record("0").value, text)
+
+    def test_rejects_truncated_length_framed_text(self):
+        with self.assertRaises(FlightDecodeError):
+            FlightStream.parse(b"0:T5,abc")
+
 
 if __name__ == "__main__":
     unittest.main()

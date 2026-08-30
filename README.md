@@ -171,9 +171,11 @@ Profile URL sent to this API
 
 LinkedIn's `/flagship-web/` responses are not ordinary profile JSON. They use a
 format called React Flight, which is a list of records with references between
-them. `flight.py` reads those records and safely follows the references. The
-rest of the application finds the relevant sections and turns their visible
-data into the stable response shown above.
+them. Some raw text records use an explicit byte length and can contain
+newlines, so `flight.py` reads the stream by record framing rather than simply
+splitting it into lines. It then safely follows references. The rest of the
+application finds the relevant sections and turns their visible data into the
+stable response shown above.
 
 The main files are:
 

@@ -498,3 +498,17 @@ component warnings: 0
 - Cache decision: no response cache was added, so every API call remains a fresh LinkedIn read. A short TTL cache remains an optional operational tradeoff if repeated-profile latency becomes more important than immediate freshness.
 - Safety: component concurrency is capped at three; dependent navigation and pagination remain sequential.
 - Offline regression suite: 30 tests passing.
+
+## EXP-20260830-023 - Length-framed Flight text records
+
+- Timestamp: 2026-08-30 (Asia/Kolkata)
+- Status: pass
+- Symptom: a legitimate non-self profile consistently returned `linkedin_protocol_changed` during `profileCardsAboveActivity`.
+- Isolation: the base profile decoded correctly and advertised all five expected components; the first failing component raised `Malformed tagged record on line 20`.
+- Wire finding: record `18` used tag `T` with hexadecimal byte-length prefix `537`. Its raw text payload can contain newlines and is followed by the next Flight record at the declared byte boundary.
+- Root cause: the decoder split the entire payload into lines and attempted to JSON-decode every tagged record. This corrupted `T` record boundaries and treated raw text as tagged JSON.
+- Fix: parse records from bytes, honor `T<hex-length>,<bytes>` framing, preserve embedded newlines and UTF-8 byte lengths, and resume at the exact next record offset.
+- Safety: existing total-byte, record-count, per-record, JSON-depth, resolved-node, cycle, and UTF-8 checks remain enforced; truncated text records are rejected.
+- Verification against the reported profile: About present, two Experience records, one education record, 22 skills, two certifications, and zero warnings.
+- Offline regression suite: 33 tests passing, including immediate-next-record, embedded-newline/UTF-8, and truncation cases.
+- Privacy: only framing metadata and structural result counts were recorded.

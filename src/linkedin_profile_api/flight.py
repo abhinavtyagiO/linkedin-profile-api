@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 
-_RECORD_RE = re.compile(r"^([0-9a-f]+):([A-Z]?)(.*)$")
+_RECORD_ID_BYTES_RE = re.compile(br"^[0-9a-f]+$")
+_HEX_LENGTH_BYTES_RE = re.compile(br"^[0-9a-f]+$")
 _LAZY_REFERENCE_RE = re.compile(r"^\$L([0-9a-f]+)$")
 _COLLECTION_REFERENCE_RE = re.compile(r"^\$[QW]([0-9a-f]+)$")
 _PATH_REFERENCE_RE = re.compile(r"^\$([0-9a-f]+):(.+)$")
@@ -105,51 +106,117 @@ class FlightStream:
             if len(payload) > active_limits.max_bytes:
                 raise FlightDecodeError("Flight payload exceeds byte limit")
             try:
-                text = payload.decode("utf-8")
+                payload.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise FlightDecodeError("Flight payload is not valid UTF-8") from exc
+            data = payload
         elif isinstance(payload, str):
-            encoded_length = len(payload.encode("utf-8"))
-            if encoded_length > active_limits.max_bytes:
+            data = payload.encode("utf-8")
+            if len(data) > active_limits.max_bytes:
                 raise FlightDecodeError("Flight payload exceeds byte limit")
-            text = payload
         else:
             raise TypeError("Flight payload must be bytes or str")
 
         records: Dict[str, FlightRecord] = {}
         order: List[str] = []
-        lines = text.splitlines()
-        if len(lines) > active_limits.max_records:
-            raise FlightDecodeError("Flight payload exceeds record limit")
-
-        for line_number, line in enumerate(lines, 1):
-            if not line:
+        position = 0
+        line_number = 1
+        while position < len(data):
+            if data[position : position + 2] == b"\r\n":
+                position += 2
+                line_number += 1
                 continue
-            if len(line.encode("utf-8")) > active_limits.max_line_bytes:
+            if data[position : position + 1] == b"\n":
+                position += 1
+                line_number += 1
+                continue
+
+            record_start = position
+            record_line = line_number
+            colon = data.find(b":", position)
+            if colon < 0:
                 raise FlightDecodeError(
-                    "Flight record on line {} exceeds line limit".format(line_number)
+                    "Malformed Flight record on line {}".format(record_line)
                 )
-            match = _RECORD_RE.match(line)
-            if not match:
+            record_id_bytes = data[position:colon]
+            if not _RECORD_ID_BYTES_RE.fullmatch(record_id_bytes):
                 raise FlightDecodeError(
-                    "Malformed Flight record on line {}".format(line_number)
+                    "Malformed Flight record on line {}".format(record_line)
+                )
+            position = colon + 1
+
+            tag = ""
+            if position < len(data) and 65 <= data[position] <= 90:
+                tag = chr(data[position])
+                position += 1
+
+            if tag == "T":
+                comma = data.find(b",", position)
+                if comma < 0:
+                    raise FlightDecodeError(
+                        "Malformed text record on line {}".format(record_line)
+                    )
+                length_bytes = data[position:comma]
+                if not _HEX_LENGTH_BYTES_RE.fullmatch(length_bytes):
+                    raise FlightDecodeError(
+                        "Malformed text record on line {}".format(record_line)
+                    )
+                text_length = int(length_bytes, 16)
+                body_start = comma + 1
+                body_end = body_start + text_length
+                if body_end > len(data):
+                    raise FlightDecodeError(
+                        "Truncated text record on line {}".format(record_line)
+                    )
+                raw_body_bytes = data[body_start:body_end]
+                position = body_end
+                if data[position : position + 2] == b"\r\n":
+                    position += 2
+                elif data[position : position + 1] == b"\n":
+                    position += 1
+            else:
+                newline = data.find(b"\n", position)
+                if newline < 0:
+                    body_end = len(data)
+                    position = len(data)
+                else:
+                    body_end = newline
+                    position = newline + 1
+                if data[body_end - 1 : body_end] == b"\r":
+                    body_end -= 1
+                raw_body_bytes = data[colon + 1 + (1 if tag else 0) : body_end]
+
+            if position - record_start > active_limits.max_line_bytes:
+                raise FlightDecodeError(
+                    "Flight record on line {} exceeds line limit".format(record_line)
+                )
+            if len(order) >= active_limits.max_records:
+                raise FlightDecodeError(
+                    "Flight payload exceeds record limit"
                 )
 
-            record_id, tag, raw_body = match.groups()
+            record_id = record_id_bytes.decode("ascii")
+            try:
+                raw_body = raw_body_bytes.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise FlightDecodeError(
+                    "Flight record on line {} is not valid UTF-8".format(record_line)
+                ) from exc
             if record_id in records:
                 raise FlightDecodeError(
-                    "Duplicate Flight record id on line {}".format(line_number)
+                    "Duplicate Flight record id on line {}".format(record_line)
                 )
 
-            value = cls._parse_record_value(record_id, tag, raw_body, line_number)
+            value = cls._parse_record_value(record_id, tag, raw_body, record_line)
             if _json_depth(value) > active_limits.max_json_depth:
                 raise FlightDecodeError(
                     "Flight record on line {} exceeds JSON depth limit".format(
-                        line_number
+                        record_line
                     )
                 )
             records[record_id] = FlightRecord(record_id, tag, raw_body, value)
             order.append(record_id)
+            line_number += data[record_start:position].count(b"\n")
 
         if not records:
             raise FlightDecodeError("Flight payload contains no records")
@@ -162,6 +229,8 @@ class FlightStream:
         raw_body: str,
         line_number: int,
     ) -> Any:
+        if tag == "T":
+            return raw_body
         try:
             parsed = json.loads(raw_body)
         except json.JSONDecodeError:
