@@ -1,0 +1,25 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Private reverse-engineering material
+work/private-research/
+*.har
+*.curl
+cookies*.txt
+headers*.txt
+raw-response*
+
+# Python/runtime artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.egg-info/
+
+# Editor and OS artifacts
+.DS_Store
+.idea/
+.vscode/
