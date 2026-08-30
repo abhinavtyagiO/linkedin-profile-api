@@ -163,8 +163,8 @@ Profile URL sent to this API
   -> request the main profile data from LinkedIn
   -> decode LinkedIn's React Flight response
   -> find the profile sections advertised in that response
-  -> request About, Experience, Education, Skills, and other needed sections
-  -> follow additional Skills pages until there are no more
+  -> request independent profile sections with at most three parallel calls
+  -> request Skills in pages of up to 50 until there are no more
   -> extract only the fields in our public response
   -> return clean JSON
 ```
@@ -184,6 +184,18 @@ The main files are:
 - `extract.py`: profile field extraction
 - `service.py`: coordinates the full request flow and Skills pagination
 - `models.py`: public request and response fields
+
+### Latency
+
+A profile fetch requires several dependent LinkedIn requests, so an uncached
+response takes seconds rather than milliseconds. Independent profile sections
+are fetched with a conservative three-request pool. The Skills request asks for
+up to 50 items per page instead of LinkedIn's advertised default of 10, while
+still following a continuation when a profile has more skills.
+
+On the authorized test profile, this reduced the local uncached request graph
+from 12 calls and 12.24 seconds to 8 calls and 8.37 seconds. No profile-response
+cache is used, so each API call still reads current data from LinkedIn.
 
 ## How the endpoints were found
 

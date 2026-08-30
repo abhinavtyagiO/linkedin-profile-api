@@ -486,3 +486,15 @@ component warnings: 0
 - Live verification: HTTP 200, five correctly titled Experience records, one education record, 41 skills, and no warnings.
 - Offline regression suite: 28 tests passing.
 - Privacy: only structural counts and synthetic fixtures were retained.
+
+## EXP-20260830-022 - Request-graph latency reduction
+
+- Timestamp: 2026-08-30 (Asia/Kolkata)
+- Status: pass
+- Baseline: 12 sequential LinkedIn calls took 12.24 seconds locally: one base request, five components, one Skills detail request, and five ten-item Skills pages.
+- Finding 1: the five component requests are independent after the base response advertises them; a bounded three-worker pool preserves the dependency graph while reducing their wall time.
+- Finding 2: changing the typed Skills request count from 10 to 50 returned all 41 observed skills in one 1.51-second page with no continuation. Profiles above 50 still follow the server continuation.
+- Optimized result: eight upstream calls took 8.37 seconds locally, a 31.6% reduction, while returning five Experience records, one education record, 41 skills, and no warnings.
+- Cache decision: no response cache was added, so every API call remains a fresh LinkedIn read. A short TTL cache remains an optional operational tradeoff if repeated-profile latency becomes more important than immediate freshness.
+- Safety: component concurrency is capped at three; dependent navigation and pagination remain sequential.
+- Offline regression suite: 30 tests passing.
