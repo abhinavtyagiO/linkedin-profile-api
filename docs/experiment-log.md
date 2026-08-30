@@ -474,3 +474,15 @@ component warnings: 0
 - Negative control: a profile screen missing its top card without the NotFound identifier still raises `linkedin_protocol_changed`.
 - Verification: live API replay returned HTTP 404 and the stable `profile_not_found` body; 25 offline tests passed.
 - Privacy: no raw Flight response or credentials were written to the repository.
+
+## EXP-20260830-021 - Railway locale and Experience RCA
+
+- Timestamp: 2026-08-30 (Asia/Kolkata)
+- Status: pass
+- Symptom: production returned Dutch skill evidence, zero Experience records, and no warning for a profile known to contain jobs.
+- Root cause: the reduced request omitted LinkedIn's language header/cookie while extraction still depended on English rendered dates; standalone and grouped Experience entries also used different text order.
+- Controlled capture after pinning English: the Experience component was advertised, contained 67 Flight records, exposed the expected semantic section, and contained four outer items representing five roles.
+- Fix: request English, parse grouped and standalone layouts separately, warn on non-empty/unparsed Experience sections, retry one transient decode failure, and omit absent response values.
+- Live verification: HTTP 200, five correctly titled Experience records, one education record, 41 skills, and no warnings.
+- Offline regression suite: 28 tests passing.
+- Privacy: only structural counts and synthetic fixtures were retained.

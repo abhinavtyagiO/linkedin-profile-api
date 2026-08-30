@@ -370,7 +370,11 @@ def extract_experience(stream: Optional[FlightStream]) -> List[Experience]:
         for position, date_index in enumerate(date_indexes):
             if date_index == 0:
                 continue
-            title = lines[date_index - 1]
+            # Standalone entries are rendered as title, company, date. Grouped
+            # entries are rendered as company summary followed by title, date
+            # pairs. The previous shared date-1 rule therefore returned the
+            # company name as the title for standalone jobs.
+            title = lines[date_index - 1] if grouped else lines[0]
             date_range, duration = _split_date(lines[date_index])
             next_date = date_indexes[position + 1] if position + 1 < len(date_indexes) else len(lines)
             segment_end = next_date - 1 if next_date < len(lines) else next_date
@@ -572,6 +576,16 @@ def extract_profile(
         if missing
         else []
     )
+    if experience_stream is not None and not experience:
+        experience_section = _find_first(
+            _root(experience_stream),
+            "observabilityIdentifier",
+            EXPERIENCE_ID,
+        )
+        if experience_section is not None and _initial_items(experience_section):
+            warnings.append(
+                "LinkedIn returned Experience entries, but none could be parsed"
+            )
     return ProfileResponse(
         profile_url=target.canonical_url,
         vanity_name=target.vanity_name,

@@ -53,6 +53,8 @@ def create_app(service: Optional[ProfileService] = None) -> FastAPI:
     @app.post(
         "/v1/profiles:fetch",
         response_model=ProfileResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_defaults=True,
         responses={
             500: {"model": ErrorBody},
             404: {"model": ErrorBody},

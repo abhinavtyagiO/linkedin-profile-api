@@ -13,6 +13,7 @@ class ConfigTests(unittest.TestCase):
             credentials = LinkedInCredentials.load(path, environ={})
 
         self.assertEqual(credentials.csrf_token, "ajax:123")
+        self.assertTrue(credentials.cookie_header.endswith("lang=v=2&lang=en-us"))
         self.assertNotIn("secret-a", repr(credentials))
         self.assertNotIn("ajax:123", repr(credentials))
 

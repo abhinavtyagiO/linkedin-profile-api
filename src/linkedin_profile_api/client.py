@@ -7,7 +7,7 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .config import LinkedInCredentials
 from .errors import (
@@ -114,6 +114,7 @@ class LinkedInClient:
     ) -> FlightStream:
         headers = {
             "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
             "Content-Type": "application/json",
             "Cookie": self.credentials.cookie_header,
             "Csrf-Token": self.credentials.csrf_token,
@@ -123,29 +124,42 @@ class LinkedInClient:
             "X-LI-RSC-Stream": "true",
             "User-Agent": "linkedin-profile-api/0.1",
         }
-        request = urllib.request.Request(
-            url=self.base_url + path,
-            data=json.dumps(body, separators=(",", ":")).encode("utf-8"),
-            headers=headers,
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = response.read(self.max_response_bytes + 1)
-                content_type = response.headers.get_content_type()
-        except urllib.error.HTTPError as exc:
-            self._raise_http_error(exc.code)
-        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-            raise LinkedInUnavailable("LinkedIn request failed") from exc
+        encoded_body = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        last_decode_error: Optional[FlightDecodeError] = None
+        for attempt in range(2):
+            request = urllib.request.Request(
+                url=self.base_url + path,
+                data=encoded_body,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    payload = response.read(self.max_response_bytes + 1)
+                    content_type = response.headers.get_content_type()
+            except urllib.error.HTTPError as exc:
+                self._raise_http_error(exc.code)
+            except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+                raise LinkedInUnavailable("LinkedIn request failed") from exc
 
-        if len(payload) > self.max_response_bytes:
-            raise LinkedInProtocolError("LinkedIn response exceeded the configured limit")
-        if content_type in {"text/html", "application/xhtml+xml"}:
-            raise LinkedInChallenge("LinkedIn returned an authentication or challenge page")
-        try:
-            return FlightStream.parse(payload)
-        except FlightDecodeError as exc:
-            raise LinkedInProtocolError("LinkedIn returned an unknown response format") from exc
+            if len(payload) > self.max_response_bytes:
+                raise LinkedInProtocolError(
+                    "LinkedIn response exceeded the configured limit"
+                )
+            if content_type in {"text/html", "application/xhtml+xml"}:
+                raise LinkedInChallenge(
+                    "LinkedIn returned an authentication or challenge page"
+                )
+            try:
+                return FlightStream.parse(payload)
+            except FlightDecodeError as exc:
+                last_decode_error = exc
+                if attempt == 0:
+                    continue
+
+        raise LinkedInProtocolError(
+            "LinkedIn returned an unknown response format"
+        ) from last_decode_error
 
     @staticmethod
     def _raise_http_error(status: int) -> None:

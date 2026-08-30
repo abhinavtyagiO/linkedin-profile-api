@@ -19,6 +19,9 @@ LinkedIn's own website, so those endpoints can change without warning.
 - Licenses, certifications, and languages when available
 - A timestamp, section status, and safe warnings
 
+Fields that LinkedIn does not return are left out of the JSON. The API does not
+send `null`, empty lists, empty nested objects, or empty optional subfields.
+
 The response does not include analytics, recommendations, tracking IDs,
 editing buttons, private prompts, or LinkedIn's raw response.
 
@@ -46,10 +49,8 @@ Content-Type: application/json
   "name": "Example Person",
   "headline": "Software Engineer",
   "location": "Bengaluru, Karnataka, India",
-  "about": null,
   "images": {
-    "profile": "https://media.licdn.com/...",
-    "background": null
+    "profile": "https://media.licdn.com/..."
   },
   "experience": [
     {
@@ -63,20 +64,18 @@ Content-Type: application/json
       "company_logo_url": "https://media.licdn.com/..."
     }
   ],
-  "education": [],
   "skills": [
     {
-      "name": "Python",
-      "evidence": []
+      "name": "Python"
     }
   ],
-  "certifications": [],
-  "languages": [],
   "metadata": {
-    "source": "linkedin_flagship_web",
     "fetched_at": "2026-08-30T00:00:00+00:00",
-    "completeness": {},
-    "warnings": []
+    "completeness": {
+      "top_card": "complete",
+      "experience": "present",
+      "skills": "present"
+    }
   }
 }
 ```
@@ -197,6 +196,8 @@ The research showed that:
 - The first response lists the other profile sections that can be requested.
 - Each section can be fetched directly without a browser.
 - The Skills screen provides instructions for requesting the next page.
+- LinkedIn can localize rendered profile text, so the client explicitly requests
+  English for consistent extraction.
 - Many browser-generated tracking headers are not required for the reduced
   direct request.
 
@@ -258,7 +259,7 @@ careful request-rate limit.
   authorized, and review LinkedIn's terms and relevant privacy laws.
 - Returned fields depend on profile privacy, the signed-in account, language,
   and LinkedIn's current page layout.
-- `null` or an empty list can mean that a field is absent or not visible.
+- Missing or invisible LinkedIn fields are omitted from the response.
 - Work-history entries grouped under one company are rendered differently from
   standalone jobs and still need more layout coverage.
 - The current extractor has been live-tested mainly with the session owner's
@@ -277,3 +278,17 @@ careful request-rate limit.
 - LinkedIn response bodies and authentication headers are not logged.
 - Raw captures, HAR files, copied cURL requests, and cookie files are ignored by
   Git.
+
+## Production issue RCA
+
+The Railway deployment initially returned Dutch skill evidence and no
+Experience entries. The client had removed LinkedIn's language header and
+cookie while reducing the captured browser request, but the extractor still
+expected English labels and month names. The Experience parser also treated
+standalone jobs like grouped-company jobs, causing company names to be used as
+titles.
+
+The fix pins the LinkedIn response language to English, handles both Experience
+layouts separately, reports a warning if visible jobs cannot be parsed, retries
+one transient unreadable Flight response, and omits absent values from public
+JSON. See [the full RCA](docs/rca-localized-experience.md).

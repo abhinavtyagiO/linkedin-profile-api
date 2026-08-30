@@ -67,7 +67,10 @@ class LinkedInCredentials:
         jsessionid = self.jsessionid
         if not (jsessionid.startswith('"') and jsessionid.endswith('"')):
             jsessionid = '"{}"'.format(jsessionid)
-        return "li_at={}; JSESSIONID={}".format(self.li_at, jsessionid)
+        return "li_at={}; JSESSIONID={}; lang=v=2&lang=en-us".format(
+            self.li_at,
+            jsessionid,
+        )
 
     @classmethod
     def load(

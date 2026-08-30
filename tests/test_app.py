@@ -39,7 +39,15 @@ class AppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["name"], "Example Person")
-        self.assertEqual(response.json()["experience"], [])
+        self.assertNotIn("about", response.json())
+        self.assertNotIn("images", response.json())
+        self.assertNotIn("experience", response.json())
+        self.assertNotIn("education", response.json())
+        self.assertNotIn("skills", response.json())
+        self.assertNotIn("certifications", response.json())
+        self.assertNotIn("languages", response.json())
+        self.assertNotIn("completeness", response.json()["metadata"])
+        self.assertNotIn("warnings", response.json()["metadata"])
 
     def test_stable_service_error(self):
         response = self.client.post(
