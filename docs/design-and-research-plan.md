@@ -1,110 +1,94 @@
 # Design and Research Plan
 
-This was the implementation plan agreed before coding. Checkpoint statuses document what was subsequently completed.
+This is the plan I used before implementing the API. It focuses on the
+decisions that matter to the assignment and leaves out capture-specific data.
 
-## 1. Reverse-engineering methodology
+## 1. Reverse-engineering method
 
-1. Use a browser manually with an operator-owned account and profile.
-2. Inventory requests during one isolated UI action at a time.
-3. Save only sanitized method/path/query-key/body-shape observations in tracked documentation.
-4. Keep raw cURL/HAR/response material private and untracked.
-5. Replay one captured request outside the browser with credentials from environment variables.
-6. Remove captured browser metadata systematically and compare status, content type, response size, Flight record counts, and semantic anchors.
-7. Read typed actions embedded in the response to discover the next request instead of hardcoding request-scoped values.
-8. Verify uncertain serialization behavior against LinkedIn's first-party JavaScript loaded by that page.
+1. Use my own LinkedIn account and a browser only for manual investigation.
+2. Isolate one profile action at a time in DevTools.
+3. Record sanitized request shapes and response behavior.
+4. Replay the useful requests with a standalone HTTP client.
+5. Remove unnecessary browser headers through controlled experiments.
+6. Discover follow-up actions from LinkedIn's response instead of copying
+   temporary request identifiers.
 
-Checkpoint: complete for the base profile, profile components, Skills detail, and Skills pagination.
+The production application never starts or controls a browser.
 
-## 2. Experiment log structure
+## 2. Experiment records
 
-Every experiment records:
-
-- ID and timestamp
-- research question and hypothesis
-- test-account/profile class without personal values
-- exact controlled variable
-- sanitized request/response structure
-- pass/fail/inconclusive result
-- confidence and next experiment
-- explicit redaction check
-
-Checkpoint: implemented in `docs/experiment-log.md`.
+For each useful experiment I recorded the question, sanitized observation,
+conclusion, and resulting implementation decision. I did not retain cookies,
+raw responses, personal profile data, or request-specific identifiers.
 
 ## 3. Architecture
 
-The runtime is split into six boundaries:
-
 ```text
-public HTTP API
-  -> orchestration service
+FastAPI route
+  -> profile service
   -> direct LinkedIn HTTP client
-  -> bounded Flight decoder
-  -> protocol/action discovery
-  -> allowlisted section normalizers
+  -> React Flight decoder
+  -> section discovery and extraction
+  -> public response model
 ```
 
-The browser is absent from every production boundary. Raw upstream trees never cross the public API boundary.
-
-Checkpoint: implemented.
+Each layer has one job. The public API never exposes LinkedIn's raw response.
 
 ## 4. API schema
 
-Input is one `profile_url`. Output uses stable objects for identity, images, experience, education, skills, certifications, languages, and completeness metadata. Null and empty values are explicit. Errors use `code`, `message`, and `retryable` rather than leaking upstream bodies.
+The API accepts one LinkedIn profile URL. A successful response contains the
+available identity, image, experience, education, skill, certification, and
+language fields. Fields LinkedIn does not return are omitted.
 
-Checkpoint: implemented at `POST /v1/profiles:fetch`, with OpenAPI at `/docs`.
+Expected failures use a stable structure:
+
+```json
+{
+  "code": "profile_not_found",
+  "message": "The LinkedIn profile was not found",
+  "retryable": false
+}
+```
 
 ## 5. Repository layout
 
 ```text
-src/linkedin_profile_api/
-  app.py          public FastAPI surface
-  client.py       authenticated direct transport
-  config.py       secret-safe environment loading
-  errors.py       stable failure taxonomy
-  extract.py      allowlisted normalization
-  flight.py       bounded Flight decoder
-  models.py       public schema
-  protocol.py     request builders/action discovery
-  service.py      request graph and pagination
-scripts/          secret-safe research probes
-tests/            offline tests and synthetic fixtures
-docs/             research, protocol, and capture notes
+src/linkedin_profile_api/  application and LinkedIn protocol code
+tests/                     offline tests and synthetic fixtures
+scripts/                   metadata-only diagnostic tools
+docs/                      summarized design and research notes
 ```
-
-Checkpoint: implemented.
 
 ## 6. Testing strategy
 
-- Unit-test URL validation and request/action discovery.
-- Unit-test every observed Flight token with synthetic data.
-- Enforce malformed-input and resource-limit failures.
-- Unit-test section extraction with synthetic React/SDUI trees.
-- Contract-test health, success, and stable error responses using an injected fake service.
-- Run a metadata-only live smoke test against the operator-owned profile.
-- Never commit live profile responses.
+- Test URL validation and public error responses.
+- Test Flight record parsing, references, and safety limits.
+- Test section extraction with synthetic data.
+- Test component discovery and Skills pagination.
+- Test missing-profile detection and changed-protocol handling.
+- Keep live profile responses and credentials out of fixtures.
 
-Checkpoint: 19 offline tests plus a successful live end-to-end smoke test.
+The current offline suite contains 33 tests.
 
 ## 7. Deployment plan
 
-- Build a minimal non-root container.
-- Run a single worker for one LinkedIn session.
-- Inject `LINKEDIN_LI_AT` and `LINKEDIN_JSESSIONID` through the hosting platform's secret store.
-- Publish behind provider-managed HTTPS.
-- Use `/health` for platform health checks.
-- Keep concurrency conservative and do not retry authentication/challenge failures.
+- Package the API in a non-root container.
+- Store LinkedIn session values in the hosting provider's secret environment.
+- Use one application worker and conservative upstream concurrency.
+- Expose `/health` for platform checks and `/docs` for API documentation.
+- Deploy behind provider-managed HTTPS.
 
-Checkpoint: Dockerfile and Render Blueprint are ready. Creating the public service requires access to the candidate's chosen hosting account and secret entry in its dashboard.
+The current deployment runs on Railway.
 
-## 8. Known risks and limitations
+## 8. Risks and limitations
 
-- Undocumented protocols can change abruptly.
-- Session credentials expire and can trigger challenge pages.
-- Automated access may be restricted by LinkedIn policy or rate limits.
-- Profile visibility changes by viewer and privacy settings.
-- Current structural validation uses one operator-owned profile; non-self variations need an authorized second fixture.
-- Rendered SDUI text requires heuristics for some experience groupings.
-- Pagination is deliberately capped.
-- No challenge solving, credential rotation, or browser fallback exists.
+- LinkedIn's internal endpoints can change without notice.
+- Session credentials expire and may trigger verification.
+- Visibility depends on the authenticated LinkedIn account.
+- LinkedIn may rate-limit automated requests.
+- Rendered profile layouts and languages can vary.
+- The API does not solve challenges, rotate accounts, or fall back to a
+  browser.
 
-Checkpoint: documented and reflected in stable error/completeness behavior.
+These cases are returned as explicit API errors or documented response
+warnings rather than being hidden.

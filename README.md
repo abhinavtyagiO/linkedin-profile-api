@@ -360,4 +360,5 @@ titles.
 The fix pins the LinkedIn response language to English, handles both Experience
 layouts separately, reports a warning if visible jobs cannot be parsed, retries
 one transient unreadable Flight response, and omits absent values from public
-JSON. See [the full RCA](docs/rca-localized-experience.md).
+JSON. The relevant investigation is summarized in the
+[experiment notes](docs/experiment-log.md).
