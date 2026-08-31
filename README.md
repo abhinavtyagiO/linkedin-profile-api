@@ -212,60 +212,63 @@ On the authorized test profile, this reduced the local uncached request graph
 from 12 calls and 12.24 seconds to 8 calls and 8.37 seconds. No profile-response
 cache is used, so each API call still reads current data from LinkedIn.
 
-## Step-by-step approach used
+## How I approached the problem
 
-The solution was built by studying LinkedIn's own web requests. An existing
-LinkedIn scraper library was not copied or wrapped.
+I started by treating LinkedIn as an undocumented system that I needed to
+understand, rather than looking for an existing scraper to wrap. My goal was to
+work out what LinkedIn's own website does and reproduce only the parts needed
+for this assignment.
 
-1. **Set the boundary.** The required input was a LinkedIn profile URL and the
-   required output was clean profile JSON. A browser could be used for manual
-   research, but it could not be part of the running application.
-2. **Observe one profile load.** Using an operator-owned LinkedIn account,
-   Chrome DevTools was cleared and one profile was opened. This isolated the
-   requests caused by that action.
-3. **Map the request flow.** The profile used `/flagship-web/in/<vanity>/` for
-   its main data and `/flagship-web/rsc-action/actions/component` for sections
-   such as About, experience, education, languages, and Skills. Skills also
-   used a separate detail request and pagination action.
-4. **Record the contract safely.** The method, path, query names, useful
-   headers, request-body shape, and response type were documented. Cookies,
-   CSRF values, raw personal data, and request-specific IDs were kept out of
-   source control.
-5. **Replay the request without a browser.** The captured request was rebuilt
-   in Python and authenticated with `li_at` and `JSESSIONID` values loaded only
-   from environment variables. This proved that a normal HTTP client could
-   fetch the same data directly.
-6. **Remove unnecessary browser data.** Headers were removed one at a time.
-   Browser client hints, page tracking, tracing, and build metadata were not
-   needed. The application kept only the small set required for a reliable
-   authenticated request.
-7. **Decode LinkedIn's response.** The response was React Flight data rather
-   than ordinary JSON. A bounded decoder was written to read its records,
-   follow references, and correctly handle length-prefixed text that may
-   contain newlines.
-8. **Follow actions returned by LinkedIn.** Component and pagination requests
-   are discovered from typed actions in the preceding response. This avoids
-   copying short-lived page IDs and lets Skills continue across pages.
-9. **Extract only profile fields.** Each useful section is allowlisted and
-   converted into the public response model. Analytics, editing controls,
-   recommendations, promotions, tracking data, empty lists, and null values
-   are not returned.
-10. **Handle failure cases.** Expired sessions, verification pages, rate
-    limits, network failures, and changed response formats receive stable API
-    errors. LinkedIn sometimes reports a missing profile inside a successful
-    HTTP 200 response, so its semantic `NotFound` screen is translated into the
-    API's `404 profile_not_found` response.
-11. **Test the behavior.** Synthetic response samples cover parsing,
-    extraction, pagination, URL validation, error mapping, and safety limits.
-    A metadata-only live check confirms the current request flow without
-    storing real profile responses.
-12. **Deploy with secrets outside the code.** The same browser-free client runs
-    in the hosted service. Railway supplies the two LinkedIn session values as
-    secret environment variables and exposes the FastAPI application over
-    HTTPS.
+1. **I first defined the boundary.** The API needed to accept a LinkedIn
+   profile URL and return clean JSON. I could use a browser to investigate the
+   website, but the final application itself could not depend on a browser.
+2. **I watched a profile load in DevTools.** I signed in with my own LinkedIn
+   account, cleared the Network tab, and opened one profile. This gave me a
+   small set of requests that I could connect directly to that page load.
+3. **I mapped out the request flow.** I found that the main profile data came
+   from `/flagship-web/in/<vanity>/`, while sections such as About, experience,
+   education, languages, and Skills came from separate component requests.
+   Skills also had its own detail and pagination requests.
+4. **I wrote down only the useful parts.** For each request, I recorded its
+   method, URL shape, body structure, important headers, and response type. I
+   made sure cookies, CSRF values, personal profile data, and temporary request
+   IDs never went into the repository.
+5. **I replayed the requests outside the browser.** I rebuilt the first request
+   in Python and loaded `li_at` and `JSESSIONID` from environment variables.
+   Once that returned the same data, I knew the final application could talk
+   directly to LinkedIn over HTTP.
+6. **I reduced the request to what was actually needed.** I removed headers one
+   at a time and repeated the request. Browser hints, tracking information,
+   trace IDs, and build metadata turned out to be unnecessary, so I left them
+   out of the client.
+7. **I decoded the response format.** LinkedIn did not return normal profile
+   JSON. It returned React Flight records containing references to other
+   records. I wrote a bounded decoder that follows those references and also
+   handles length-prefixed text containing newlines.
+8. **I used LinkedIn's responses to find the next requests.** The response
+   includes actions for loading profile components and additional Skills
+   pages. I read those actions instead of hardcoding temporary page IDs, which
+   made the request flow more reliable.
+9. **I converted the raw data into a small public model.** I kept only the
+   profile information required by the assignment. I deliberately left out
+   editing controls, analytics, recommendations, promotions, tracking data,
+   null values, and empty lists.
+10. **I added clear failure handling.** The API now distinguishes expired
+    sessions, verification pages, rate limits, network problems, missing
+    profiles, and response formats it no longer understands. One interesting
+    case was that LinkedIn sometimes returns HTTP 200 for a missing profile; I
+    detect its internal `NotFound` screen and return `404 profile_not_found`.
+11. **I tested each layer separately.** I created synthetic response samples
+    for decoding, extraction, pagination, URL validation, error mapping, and
+    parser safety limits. I also used a metadata-only live check so I could
+    verify the current LinkedIn flow without saving real profile responses.
+12. **Finally, I deployed the same browser-free client.** Railway provides the
+    two LinkedIn session values through secret environment variables and serves
+    the FastAPI application over HTTPS.
 
-The important result is that the browser was only an observation tool during
-research. Every production profile fetch is made directly by the HTTP client.
+The browser was useful for understanding the requests, but it is not involved
+when the deployed API runs. Every production profile fetch is a direct HTTP
+request from the application to LinkedIn.
 
 More detail is available in the [experiment log](docs/experiment-log.md),
 [protocol notes](docs/protocol-notes.md), and
